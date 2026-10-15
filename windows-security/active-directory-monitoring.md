@@ -23,6 +23,9 @@ A practical reference for monitoring Active Directory using Windows Event Logs a
 | 4776 | NTLM credential validation | Domain Controller |
 | 5136 | Directory Service object modified | Useful for monitoring GPO changes |
 | 5140 | Network share accessed | File share monitoring |
+| 6272 | NPS granted network access | VPN / NPS authentication |
+| 6273 | NPS denied network access | VPN / NPS authentication |
+| 6274 | NPS discarded access request | VPN / NPS authentication |
 
 ---
 
@@ -325,6 +328,281 @@ To check a specific subcategory:
 
 ```cmd
 auditpol /get /subcategory:"Kerberos Service Ticket Operations"
+```
+
+---
+
+# Detecting Initial Access
+
+Initial access attacks can leave evidence across different log sources.
+
+For web-based attacks, IIS logs can help identify suspicious requests, while Windows and Sysmon logs can show what happened on the server after the request.
+
+---
+
+# IIS Log Analysis
+
+IIS logs contain information about HTTP requests sent to a Windows web server.
+
+## Important IIS Fields
+
+| Field | Description |
+|---|---|
+| `c_ip` | IP address of the client |
+| `cs_uri_stem` | Requested URI path |
+| `cs_uri_query` | Query string sent with the request |
+| `cs_method` | HTTP method such as GET or POST |
+| `sc_status` | HTTP response status code |
+| `cs(User-Agent)` | User-Agent used by the client |
+
+These fields can help identify scanning, suspicious requests, web shells, and credential attacks.
+
+---
+
+# Detecting Web Scanning
+
+Attackers may scan a web server to discover hidden files, directories, or applications.
+
+A large number of `404` responses from the same IP address can be a useful starting point.
+
+### Find IP Addresses Generating 404 Responses
+
+```spl
+index=iis sc_status=404
+| stats count by c_ip
+| sort - count
+```
+
+After identifying a suspicious IP, check which requests from that address were successful.
+
+```spl
+index=iis c_ip={SUSPICIOUS_IP} sc_status=200
+| stats count by cs_uri_stem
+| sort - count
+```
+
+This can help identify resources discovered during the scan.
+
+A high number of failed requests does not automatically mean malicious activity. The source IP and requested resources should be investigated further.
+
+---
+
+# Detecting Web Shells
+
+A web shell is a malicious script placed on a web server that allows an attacker to execute commands remotely.
+
+IIS logs can show requests to the web shell and commands passed through the URL.
+
+### Investigate Requests to a Suspicious File
+
+```spl
+index=iis cs_uri_stem="*/{WEBSHELL_FILENAME}"
+| table _time, c_ip, cs_method, cs_uri_query, sc_status
+| sort _time
+```
+
+The `cs_uri_query` field is especially useful because commands sent to a web shell may appear in the query string.
+
+Example activity may look like:
+
+```text
+cmd=whoami
+cmd=hostname
+cmd=tasklist
+```
+
+---
+
+## IIS and Sysmon Correlation
+
+IIS worker processes normally run as:
+
+```text
+w3wp.exe
+```
+
+If a web shell executes operating system commands, `w3wp.exe` may create a command interpreter or another suspicious child process.
+
+### Find Processes Started by IIS
+
+```spl
+index=win EventCode=1 ParentImage="*\\w3wp.exe"
+| table _time, ParentImage, CommandLine
+| sort _time
+```
+
+**Sysmon Event ID 1** records process creation.
+
+A suspicious process chain can look like:
+
+```text
+w3wp.exe
+   ↓
+cmd.exe
+   ↓
+system command
+```
+
+This provides host-level evidence that activity seen in the IIS logs resulted in command execution on the server.
+
+---
+
+---
+
+# Detecting OWA Credential Attacks
+
+Outlook Web Access (OWA) can be targeted with password guessing or brute-force attacks.
+
+Authentication requests can be identified in IIS logs by looking for POST requests to the OWA authentication endpoint.
+
+### Detect High Numbers of OWA Login Requests
+
+```spl
+index=iis cs_uri_stem="/owa/auth.owa" cs_method=POST
+| bin _time span=5m
+| stats count by _time, c_ip
+| where count > 10
+| sort - count
+```
+
+This groups authentication requests into five-minute periods and helps identify IP addresses generating many login attempts.
+
+After identifying suspicious activity in IIS, Windows authentication logs can be investigated.
+
+---
+
+## Investigating Failed Logons
+
+Event ID `4625` records failed Windows logons.
+
+```spl
+index=win EventCode=4625
+| stats count by user, Logon_Type
+| sort - count
+```
+
+This can help identify accounts receiving a large number of failed authentication attempts.
+
+Event ID `4624` can then be checked to determine whether authentication eventually succeeded.
+
+```spl
+index=win EventCode IN (4624,4625) user={SUSPICIOUS_USER}
+| table _time, EventCode, user, Logon_Type, Source_Network_Address
+| sort _time
+```
+
+---
+
+# VPN and Network Policy Server Monitoring
+
+Windows Network Policy Server (NPS) can provide useful authentication information for VPN connections.
+
+## Important NPS Event IDs
+
+| Event ID | Description |
+|---|---|
+| 6272 | Network Policy Server granted access |
+| 6273 | Network Policy Server denied access |
+| 6274 | Network Policy Server discarded the request |
+
+These events can help identify repeated VPN authentication failures and successful access after multiple failed attempts.
+
+---
+
+## NPS Reason Codes
+
+Event ID `6273` includes a reason code explaining why access was denied.
+
+| Reason Code | Meaning |
+|---|---|
+| 16 | Unknown username or bad password |
+| 48 | No matching network policy |
+| 65 | RADIUS shared secret mismatch |
+
+Reason codes provide important context.
+
+For example, repeated failures with reason code `16` may indicate a credential attack, while other codes may be related to configuration problems.
+
+---
+
+# Detecting VPN Credential Attacks
+
+Repeated NPS authentication failures can be grouped by account and source IP.
+
+```spl
+index=win EventCode=6273
+| stats count by User_Account_Name, Client_IP_Address
+| sort - count
+```
+
+After identifying a suspicious account, compare denied and successful authentication events.
+
+```spl
+index=win EventCode IN (6273,6272) User_Account_Name={SUSPICIOUS_USER}
+| table _time, EventCode, User_Account_Name, Client_IP_Address
+| sort _time
+```
+
+This can show a pattern such as:
+
+```text
+6273 - denied
+6273 - denied
+6273 - denied
+        ↓
+6272 - granted
+```
+
+A successful authentication after many failures should be investigated further.
+
+---
+
+# Correlating VPN and Windows Logons
+
+After finding a successful VPN authentication, Windows logon events can provide additional information about the account's activity.
+
+Useful events:
+
+| Event ID | Meaning |
+|---|---|
+| 4624 | Successful Windows logon |
+| 4625 | Failed Windows logon |
+| 6272 | NPS granted access |
+| 6273 | NPS denied access |
+
+Example search:
+
+```spl
+index=win EventCode IN (4624,4625) user={SUSPICIOUS_USER}
+| table _time, EventCode, user, Logon_Type, Source_Network_Address
+| sort _time
+```
+
+---
+
+# Initial Access Investigation Workflow
+
+A useful approach when investigating web and credential-based initial access is:
+
+```text
+Web Server
+├── IIS 404 responses
+├── Suspicious source IP
+├── Successful resource discovery
+└── Suspicious web requests
+        ↓
+Endpoint
+├── Sysmon Event ID 1
+├── w3wp.exe child processes
+└── Sysmon Event ID 11
+        ↓
+Authentication
+├── 4625 failed logons
+├── 4624 successful logons
+├── 6273 NPS denied access
+└── 6272 NPS granted access
+        ↓
+Further Investigation
 ```
 
 ---
