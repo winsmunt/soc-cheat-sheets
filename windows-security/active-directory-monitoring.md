@@ -606,3 +606,353 @@ Further Investigation
 ```
 
 ---
+
+# AD Credential Attacks
+
+Credential attacks in Active Directory can target Kerberos tickets, process memory, or the Active Directory database itself.
+
+The table below provides a quick reference for the main detection signals.
+
+## Quick Reference
+
+| Technique | Event ID | Main Detection Signal | Log Source |
+|---|---|---|---|
+| Kerberoasting | 4769 | RC4 tickets (`0x17`) and multiple SPNs requested by one account | DC Security Log |
+| AS-REP Roasting | 4768 | `Pre_Authentication_Type=0` with no normal follow-up authentication | DC Security Log |
+| LSASS Dumping | Sysmon 10 | Access to `lsass.exe`, suspicious `GrantedAccess` and `CallTrace` | Endpoint Sysmon |
+| DCSync | 4662 | `Access_Mask=0x100`, replication GUIDs, non-machine account | DC Security Log |
+| NTDS.dit Extraction | Sysmon 1, 11 | `ntdsutil.exe` or `vssadmin.exe` with IFM / shadow copy activity | DC Sysmon |
+
+---
+
+# Kerberoasting
+
+Kerberoasting involves requesting Kerberos service tickets for accounts that have Service Principal Names (SPNs).
+
+Event ID `4769` records Kerberos service ticket requests and is the main event used for detecting this activity.
+
+## Important Event 4769 Fields
+
+| Field | What It Contains | Why It Matters |
+|---|---|---|
+| `Service_Name` | SPN being requested | Shows which service account is being targeted |
+| `Ticket_Encryption_Type` | Ticket encryption type | RC4 requests can be an important Kerberoasting signal |
+| `Account_Name` | Account requesting the ticket | Identifies the account performing the requests |
+| `Client_Address` | Source IP of the request | Identifies the source machine |
+
+## Kerberos Encryption Types
+
+Two useful values when reviewing Event 4769 are:
+
+| Value | Encryption |
+|---|---|
+| `0x12` | AES |
+| `0x17` | RC4 |
+
+RC4 (`0x17`) ticket requests are especially useful when looking for possible Kerberoasting activity.
+
+## Find RC4 Service Ticket Requests
+
+```spl
+index=* EventCode=4769 Ticket_Encryption_Type=0x17 Service_Name!="*$*" Service_Name!="krbtgt"
+| table _time, Account_Name, Service_Name, Ticket_Encryption_Type, Client_Address
+| sort _time
+```
+
+This search focuses on RC4 service tickets while excluding machine accounts and `krbtgt`.
+
+## Look for Many SPNs Requested by One Account
+
+A useful detection method is to identify accounts requesting tickets for many different services.
+
+```spl
+index=* EventCode=4769 Service_Name!="*$*" Service_Name!="krbtgt"
+| bin _time span=5m
+| stats dc(Service_Name) as unique_spns count by Account_Name, Client_Address, _time
+| where unique_spns > 5
+```
+
+This groups requests into five-minute windows and counts how many unique SPNs were requested by each account.
+
+A large number of different SPNs requested in a short period can be worth investigating.
+
+---
+
+# AS-REP Roasting
+
+AS-REP Roasting targets accounts that do not require Kerberos pre-authentication.
+
+Event ID `4768` records Kerberos TGT requests.
+
+## Normal Authentication vs AS-REP Roasting
+
+A normal authentication sequence may look like:
+
+```text
+4768 → 4769 → 4624
+```
+
+This represents:
+
+```text
+TGT request
+    ↓
+Service ticket request
+    ↓
+Successful logon
+```
+
+AS-REP Roasting may instead appear as:
+
+```text
+4768 → no follow-up authentication
+```
+
+The attacker requests authentication data but does not continue with the normal authentication process.
+
+## Review TGT Requests
+
+```spl
+index=* EventCode=4768
+| table _time, Account_Name, Pre_Authentication_Type, Ticket_Encryption_Type, Client_Address
+| sort _time
+```
+
+## Find Accounts Without Pre-Authentication
+
+```spl
+index=* EventCode=4768 Pre_Authentication_Type=0
+| table _time, Account_Name, Pre_Authentication_Type, Ticket_Encryption_Type, Client_Address
+```
+
+`Pre_Authentication_Type=0` is an important signal because it shows that Kerberos pre-authentication was not used.
+
+## Check for Follow-Up Activity
+
+After finding a suspicious account, check whether normal authentication continued:
+
+```spl
+index=* (EventCode=4624 OR EventCode=4769)
+| search Account_Name="{ACCOUNT_NAME}"
+| table _time, EventCode, Account_Name, Client_Address
+```
+
+If a `4768` event with `Pre_Authentication_Type=0` appears without normal follow-up authentication, the activity deserves further investigation.
+
+---
+
+# LSASS Credential Dumping
+
+LSASS (`lsass.exe`) stores authentication-related information in memory.
+
+Credential dumping tools may attempt to access the LSASS process to read credentials.
+
+Sysmon Event ID `10` records process access and can be useful for detecting this behaviour.
+
+## Important Sysmon Event 10 Fields
+
+| Field | What It Contains | Why It Matters |
+|---|---|---|
+| `SourceImage` | Process accessing LSASS | Identifies the tool or process performing the access |
+| `SourceUser` | User running the source process | Helps identify the account performing the activity |
+| `TargetImage` | Target process | Confirms that `lsass.exe` was accessed |
+| `GrantedAccess` | Requested process permissions | Shows what level of access was requested |
+| `CallTrace` | DLL call stack | Can provide more information about the access method |
+
+## Useful Access Rights
+
+| Access Right | Hex Value | Purpose |
+|---|---|---|
+| `PROCESS_QUERY_LIMITED_INFORMATION` | `0x1000` | Query basic process information |
+| `PROCESS_QUERY_INFORMATION` | `0x0400` | Query detailed process information |
+| `PROCESS_VM_READ` | `0x0010` | Read process memory |
+| `PROCESS_ALL_ACCESS` | `0x1FFFFF` | Full access to the process |
+
+Memory-read or full-access permissions are especially useful when investigating suspicious access to LSASS.
+
+## Find Processes Accessing LSASS
+
+```spl
+index=* EventCode=10 TargetImage="*\\lsass.exe"
+| stats count by SourceImage, GrantedAccess
+```
+
+This provides a quick overview of which processes accessed LSASS and what permissions they requested.
+
+## Investigate a Suspicious Process
+
+```spl
+index=* EventCode=10 TargetImage="*\\lsass.exe" SourceImage={SUSPICIOUS_PROCESS}
+| table _time, SourceImage, SourceUser, GrantedAccess, CallTrace
+```
+
+When investigating, focus on:
+
+- the process accessing LSASS;
+- the user running that process;
+- the requested access rights;
+- the call trace.
+
+---
+
+# DCSync
+
+DCSync abuses Active Directory replication functionality.
+
+Event ID `4662` can provide evidence of directory replication activity.
+
+## Find Replication Activity
+
+```spl
+index=* EventCode=4662 "1131f6ad" user!="*$"
+| table _time, user, Access_Mask, Properties
+| sort _time
+```
+
+The GUID `1131f6ad` is useful when looking for replication-related activity.
+
+Machine accounts normally end with `$`, so:
+
+```spl
+user!="*$"
+```
+
+removes them from the results and helps focus on user accounts.
+
+## Focus on Suspicious Replication Access
+
+```spl
+index=* EventCode=4662 Access_Mask=0x100 user={COMPROMISED_USER} "1131f6ad"
+| table _time, host, user, Logon_ID
+```
+
+The `Logon_ID` can then be used to connect the replication activity with the logon session that generated it.
+
+## Pivot to the Logon Session
+
+```spl
+index=* EventCode=4624 Logon_ID={LOGON_ID}
+| table _time, host, user, Source_Network_Address, Logon_Type
+```
+
+This pivot can help identify:
+
+- where the session originated;
+- which account was used;
+- what type of logon created the session.
+
+---
+
+# NTDS.dit Extraction
+
+`NTDS.dit` is the Active Directory database.
+
+Attackers with sufficient privileges may attempt to extract it to obtain credential information.
+
+Two useful tools to monitor are:
+
+```text
+ntdsutil.exe
+vssadmin.exe
+```
+
+## NTDSUtil
+
+`ntdsutil.exe` can be used to create Active Directory installation media containing copies of important AD data.
+
+An example command is:
+
+```cmd
+ntdsutil "ac i ntds" "ifm" "create full C:\temp" q q
+```
+
+## Detect NTDSUtil Execution
+
+Sysmon Event ID `1` records process creation.
+
+```spl
+index=* EventCode=1 Image="*\\ntdsutil.exe"
+| table _time, host, User, ParentImage, Image, CommandLine
+```
+
+Important fields include:
+
+- `User`
+- `ParentImage`
+- `Image`
+- `CommandLine`
+
+The command line can show whether `ntdsutil.exe` was being used to create installation media.
+
+## Detect NTDS.dit File Creation
+
+Sysmon Event ID `11` records file creation.
+
+```spl
+index=* EventCode=11 TargetFilename="*ntds.dit" Image="*\\ntdsutil.exe"
+| table _time, Image, TargetFilename
+```
+
+This can show `ntdsutil.exe` creating a copy of `ntds.dit`.
+
+---
+
+# Volume Shadow Copy Activity
+
+Another method of accessing `NTDS.dit` is through Volume Shadow Copies.
+
+An attacker may create a shadow copy using:
+
+```cmd
+vssadmin create shadow /for=C:
+```
+
+Then files such as `NTDS.dit` and the SYSTEM registry hive can be copied from the shadow copy.
+
+## Detect Shadow Copy Creation
+
+```spl
+index=* EventCode=1 Image="*\\vssadmin.exe" CommandLine="*create shadow*"
+| table _time, host, User, ParentImage, Image, CommandLine
+```
+
+## Detect Access to Shadow Copies
+
+```spl
+index=* EventCode=1 CommandLine="*HarddiskVolumeShadowCopy*" (CommandLine="*ntds*" OR CommandLine="*SYSTEM*")
+| table _time, host, User, ParentImage, Image, CommandLine
+```
+
+This looks for commands accessing `NTDS.dit` or the SYSTEM hive through a Volume Shadow Copy path.
+
+---
+
+# Credential Attack Investigation Workflow
+
+When investigating suspicious Active Directory credential activity, a useful workflow is:
+
+```text
+Identify the detection event
+        ↓
+Identify the account
+        ↓
+Identify the source host / IP
+        ↓
+Review related authentication events
+        ↓
+Review process or command-line activity
+        ↓
+Determine whether the behaviour matches the credential attack
+```
+
+Different techniques require different log sources:
+
+| Technique | Main Log Source |
+|---|---|
+| Kerberoasting | Domain Controller Security Logs |
+| AS-REP Roasting | Domain Controller Security Logs |
+| LSASS Dumping | Endpoint Sysmon |
+| DCSync | Domain Controller Security Logs |
+| NTDS.dit Extraction | Domain Controller Sysmon |
+
+The important point is not to rely on one event alone. Use the event as the starting point and then pivot to the account, source system, logon session, process, or related authentication activity.
