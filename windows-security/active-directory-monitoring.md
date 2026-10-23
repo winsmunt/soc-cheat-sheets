@@ -956,3 +956,348 @@ Different techniques require different log sources:
 | NTDS.dit Extraction | Domain Controller Sysmon |
 
 The important point is not to rely on one event alone. Use the event as the starting point and then pivot to the account, source system, logon session, process, or related authentication activity.
+
+---
+
+# Lateral Movement Detection
+
+Lateral movement happens when an attacker uses a compromised account or system to access other machines in the environment.
+
+Common methods covered here are:
+
+- SMB
+- PsExec
+- RDP
+
+Before lateral movement, attackers may also perform discovery to understand the domain, users, groups, computers, and available network shares.
+
+---
+
+## Discovery Before Lateral Movement
+
+Discovery commands can be an early sign that an attacker is preparing for lateral movement.
+
+### Common Discovery Commands
+
+| Category | Command | What It Reveals |
+|---|---|---|
+| Domain / Trust | `nltest /dclist:domain` | Domain controllers in the environment |
+| Domain / Trust | `nltest /domain_trusts` | Trusted domains |
+| Accounts / Groups | `net user /domain` | Domain user accounts |
+| Accounts / Groups | `net group "Domain Admins" /domain` | Members of the Domain Admins group |
+| Accounts / Groups | `net group "Enterprise Admins" /domain` | Members of the Enterprise Admins group |
+| Accounts / Groups | `net localgroup administrators` | Local administrators on the current machine |
+| Systems | `net view` | Machines visible on the network |
+| Systems | `net view \\SERVER /all` | Shares on a remote system |
+| PowerShell | `Get-ADUser -Filter *` | AD user enumeration |
+| PowerShell | `Get-ADGroupMember "Domain Admins"` | Members of an AD group |
+| PowerShell | `Get-ADComputer -Filter *` | Computer accounts in the domain |
+
+Discovery activity is especially useful when it appears shortly before connections to other systems.
+
+### Detect Discovery Commands with Sysmon
+
+```spl
+index=win EventCode=1
+| search CommandLine IN ("*nltest*", "*net * user*", "*net * group*", "*net * view*", "*net * localgroup*")
+| table _time, host, User, Image, CommandLine, ParentImage
+| sort _time
+```
+
+### Detect PowerShell AD Enumeration
+
+```spl
+index=win EventCode=4104
+| search Message IN ("*Get-ADUser*", "*Get-ADGroupMember*", "*Get-ADComputer*")
+| table _time, Message
+| sort _time
+```
+
+---
+
+# SMB Lateral Movement
+
+SMB can be used to access remote systems and administrative shares.
+
+Administrative shares such as `ADMIN$` and `C$` are useful places to investigate when looking for lateral movement.
+
+### Important Events
+
+| Event ID | Meaning |
+|---|---|
+| 4648 | Logon using explicit / alternate credentials |
+| 4624 | Successful logon |
+| 5140 | Network share accessed |
+| Sysmon 1 | Process creation |
+
+Event ID `4648` is useful because it can show when a process uses alternate credentials to connect to another resource.
+
+---
+
+## Detect Administrative Share Access
+
+```spl
+index=win EventCode=5140 Share_Name IN ("*\\ADMIN$\\*", "*\\C$\\*")
+| table _time, host, Source_Address, user, Share_Name
+| sort _time
+```
+
+Access to an administrative share is not automatically malicious.
+
+The source system, account, time, and target should be checked to decide whether the activity is expected.
+
+---
+
+## Investigate Share Access by User
+
+```spl
+index=win EventCode=5140 user={USER_ACCOUNT}
+| table _time, Source_Address, Share_Name, host
+| sort _time
+```
+
+This can show which remote shares were accessed by a specific account.
+
+---
+
+## Find Logons from a Suspicious Source
+
+```spl
+index=win EventCode=4624 Source_Network_Address={SOURCE_IP} user=*$
+| stats count by user, Source_Network_Address
+| sort -count
+```
+
+This can help identify other systems or accounts connected with the same source.
+
+---
+
+## Look for Commands Around SMB Activity
+
+```spl
+index=win EventCode=1 host={SOURCE_HOST} CommandLine="*ADMIN$*"
+| table _time, User, Image, CommandLine
+| sort _time
+```
+
+Process creation events can provide more context about what happened before or during remote share access.
+
+---
+
+# PsExec Lateral Movement
+
+PsExec can execute commands or programs on remote Windows systems.
+
+A PsExec investigation can use several different artifacts instead of relying on only one event.
+
+### Useful PsExec Evidence
+
+| Event | What to Look For |
+|---|---|
+| 7045 | New service created |
+| Sysmon 1 | PsExec-related process creation |
+| Sysmon 17 | PsExec named pipe activity |
+| 5145 | PsExec files accessed through a network share |
+
+---
+
+## Detect Service Creation
+
+```spl
+index=win EventCode=7045
+| table _time, host, Service_Name, Service_File_Name, Service_Type, Service_Start_Type, Service_Account
+| sort _time
+```
+
+PsExec can create a service on the destination system.
+
+The `Service_File_Name` field can help identify the executable used by the service.
+
+---
+
+## Detect Processes Created by PsExec
+
+```spl
+index=win EventCode=1 host={DESTINATION_HOST} ParentImage="*PSEXESVC*"
+| table _time, host, User, ParentImage, Image, CommandLine
+| sort _time
+```
+
+This is useful for seeing commands or programs started through the PsExec service.
+
+---
+
+## Detect PsExec Named Pipes
+
+```spl
+index=win EventCode=17 Image="*PSEXESVC*"
+| table _time, host, Image, PipeName
+| sort _time
+```
+
+Sysmon Event ID `17` can provide another artifact related to PsExec activity.
+
+---
+
+## Detect PsExec Share Activity
+
+```spl
+index=win EventCode=5145 host={DESTINATION_HOST} Relative_Target_Name="*PSEXEC*"
+| table _time, user, Source_Address, Share_Name, Relative_Target_Name
+| sort _time
+```
+
+This can show PsExec-related files accessed through Windows shares.
+
+---
+
+## Find PsExec on the Source System
+
+```spl
+index=win EventCode=1 host={SOURCE_HOST}
+| search Image="*PsExec*"
+| table _time, host, User, Image, CommandLine
+| sort _time
+```
+
+Checking both the source and destination systems gives a better view of the lateral movement.
+
+---
+
+# RDP Lateral Movement
+
+RDP can also be used to move between systems.
+
+The direction of the connection is important.
+
+| Connection Pattern | Typical? | Why |
+|---|---|---|
+| Workstation → Server | Yes | Administrators may RDP from workstations to manage servers |
+| Workstation → Workstation | Rare | Normal users usually do not RDP into other workstations |
+| Server → Server | Suspicious | Servers normally do not start interactive RDP sessions to other servers |
+
+The pattern alone does not prove malicious activity, but unusual RDP direction can be worth investigating.
+
+---
+
+## Important RDP Logon Types
+
+| Logon Type | Meaning |
+|---|---|
+| 3 | Network logon |
+| 7 | Unlock / reconnect |
+| 10 | RemoteInteractive |
+
+Logon Type `10` is especially useful when looking for full RDP desktop sessions.
+
+---
+
+## Investigate an RDP Logon
+
+```spl
+index=win EventCode=4624 host=THM-DC Logon_ID={LOGON_ID}
+| table _time, user, Logon_Type, Source_Network_Address, Logon_ID
+```
+
+The `Logon_ID` can help connect authentication activity with other events from the same session.
+
+---
+
+## Find the RDP Client Process
+
+```spl
+index=win EventCode=1 host={SOURCE_SERVER} Image="*mstsc.exe*"
+| table _time, User, Image, CommandLine, LogonId
+| sort _time
+```
+
+`mstsc.exe` is the Windows Remote Desktop client.
+
+Finding it on the source system can help identify where an RDP connection started.
+
+---
+
+## Correlate the Session with Logon Events
+
+```spl
+index=win EventCode=4624 host={SOURCE_SERVER} Logon_ID={LOGON_ID}
+| table _time, user, Logon_Type, Source_Network_Address, Logon_ID
+```
+
+Using the same `Logon_ID` can help connect process activity with the user session.
+
+---
+
+# Lateral Movement Investigation Workflow
+
+When investigating possible lateral movement, a useful workflow is:
+
+```text
+Discovery activity
+        ↓
+Identify suspicious source system or account
+        ↓
+Look for remote authentication
+        ↓
+Check SMB / ADMIN$ / C$ activity
+        ↓
+Check service creation
+        ↓
+Check PsExec artifacts
+        ↓
+Check RDP activity
+        ↓
+Correlate source and destination logs
+```
+
+Do not rely on only one event.
+
+For example, possible PsExec activity may appear across:
+
+```text
+5140 / 5145
+      ↓
+Administrative share activity
+      ↓
+7045
+      ↓
+Service creation
+      ↓
+Sysmon 1
+      ↓
+Process execution
+      ↓
+Sysmon 17
+      ↓
+Named pipe activity
+```
+
+Multiple related artifacts provide stronger evidence than one event by itself.
+
+---
+
+# Quick Lateral Movement Reference
+
+| Technique | Main Evidence | Useful Fields |
+|---|---|---|
+| Discovery | Sysmon 1, PowerShell 4104 | `CommandLine`, `ParentImage`, `Message`, `User` |
+| SMB | 4648, 4624, 5140 | `Source_Address`, `Share_Name`, `user`, `host` |
+| PsExec | 7045, Sysmon 1, Sysmon 17, 5145 | `Service_File_Name`, `ParentImage`, `PipeName`, `Relative_Target_Name` |
+| RDP | 4624, Sysmon 1 | `Logon_Type`, `Source_Network_Address`, `Logon_ID`, `Image` |
+
+---
+
+## Investigation Notes
+
+When reviewing lateral movement, ask:
+
+1. **Where did the connection start?**
+2. **Which account was used?**
+3. **Which system was accessed?**
+4. **Was an administrative share accessed?**
+5. **Was a new service created?**
+6. **Were PsExec artifacts present?**
+7. **Was RDP used?**
+8. **Is this activity normal for this account and system?**
+
+The strongest investigations connect activity from both the source and destination systems.
