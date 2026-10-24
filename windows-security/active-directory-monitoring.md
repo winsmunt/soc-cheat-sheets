@@ -1301,3 +1301,57 @@ When reviewing lateral movement, ask:
 8. **Is this activity normal for this account and system?**
 
 The strongest investigations connect activity from both the source and destination systems.
+
+---
+
+# AD Post-Exploitation Detection
+
+After gaining access to an Active Directory environment, an attacker may try to maintain access, destroy recovery options, clear evidence, or deploy ransomware across multiple systems.
+
+This section covers several useful indicators of post-exploitation activity.
+
+---
+
+## Quick Reference
+
+| Activity | Event / Process | What to Look For |
+|---|---|---|
+| New user created | Event ID 4720 | Unexpected account creation |
+| User added to global security group | Event ID 4728 | User added to a privileged group such as Domain Admins |
+| User added to local security group | Event ID 4732 | User added to groups such as Remote Desktop Users |
+| Password reset | Event ID 4724 | Unexpected password reset |
+| Shadow Copies deleted | `vssadmin.exe` | `delete shadows` |
+| Shadow Copies deleted | `wmic.exe` | `shadowcopy delete` |
+| Windows Recovery disabled | `reagentc.exe` | `/disable` |
+| Backup catalog deleted | `wbadmin.exe` | `delete catalog` |
+| Security log cleared | Event ID 1102 | Audit log was cleared |
+| Event logs cleared | `wevtutil.exe` | `cl` command |
+| GPO modified | Event ID 5136 | Changes to Group Policy objects |
+| File created | Sysmon Event ID 11 | Suspicious executable created through GPO |
+| Process executed | Sysmon Event ID 1 | Ransomware or suspicious command execution |
+| Remote WMI execution | Sysmon Event ID 1 | `wmic /node:` followed by remote process creation |
+
+---
+
+# Persistence Through Account Changes
+
+Attackers may create new accounts or modify existing accounts to maintain access to the domain.
+
+Important events include:
+
+| Event ID | Activity |
+|---|---|
+| 4720 | User account created |
+| 4728 | Member added to a global security group |
+| 4732 | Member added to a local security group |
+| 4724 | Password reset attempted |
+
+---
+
+## New User Creation
+
+Event ID `4720` can be used to detect newly created accounts.
+
+```spl
+index=* EventCode=4720
+| table _time, host, Subject_Account_Name, SAM_Account_Name
