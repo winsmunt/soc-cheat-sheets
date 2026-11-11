@@ -1,10 +1,10 @@
-# Windows Forensics Artifacts — SOC / DFIR Field Guide
+# Windows Forensics Artifacts - SOC / DFIR Field Guide
 
 A practical reference for **offline Windows artifact triage**: where evidence is stored, what a finding can (and cannot) prove, and how to examine it using Eric Zimmerman's tools. Intended for SOC analysts and incident responders investigating a copied Windows filesystem or a KAPE collection.
 
 > **Scope:** This is an analyst-oriented reference, not a TryHackMe answer sheet. Examples use illustrative local paths. Work on **copies**, preserve originals, and document timezone and collection context. Artifact availability and format vary by Windows version, configuration, and collection method.
 
-## Quick Reference — Where to Look First
+## Quick Reference - Where to Look First
 
 | Investigation question | Artifact / hive | Typical offline location (relative to a collected `C:`) | Suggested tool | Evidence limitation |
 |---|---|---|---|---|
@@ -60,14 +60,14 @@ triage/
 
 ---
 
-## 2. Registry Hives — What Belongs Where?
+## 2. Registry Hives - What Belongs Where?
 
 | Hive | Common offline path | Main investigative uses |
 |---|---|---|
 | `SYSTEM` | `Windows/System32/config/SYSTEM` | Control sets, services, USB device history, system configuration |
 | `SOFTWARE` | `Windows/System32/config/SOFTWARE` | Installed software, machine-wide Run keys, Portable Devices |
 | `SAM` | `Windows/System32/config/SAM` | Local accounts and account metadata |
-| `SECURITY` | `Windows/System32/config/SECURITY` | Local security policy and sensitive system data — restricted handling |
+| `SECURITY` | `Windows/System32/config/SECURITY` | Local security policy and sensitive system data - restricted handling |
 | `NTUSER.DAT` | `Users/<user>/NTUSER.DAT` | Per-user Run keys, UserAssist, RecentDocs, Explorer history |
 | `UsrClass.dat` | `Users/<user>/AppData/Local/Microsoft/Windows/UsrClass.dat` | ShellBags and per-user shell associations |
 | `Amcache.hve` | `Windows/AppCompat/Programs/Amcache.hve` | Application and file inventory metadata |
@@ -158,7 +158,7 @@ PECmd.exe -f "C:\Cases\triage\C\Windows\Prefetch\EXAMPLE.EXE-12345678.pf" --csv 
 
 ---
 
-## 5. NTFS Metadata — `$MFT`, `$LogFile`, `$UsnJrnl`
+## 5. NTFS Metadata - `$MFT`, `$LogFile`, `$UsnJrnl`
 
 | Artifact | What it helps answer | Key caution |
 |---|---|---|
@@ -194,7 +194,7 @@ In PowerShell, single-quote the source path so `$MFT` is not expanded as a varia
 
 ---
 
-## 6. User Activity — Timeline, Jump Lists, LNK
+## 6. User Activity - Timeline, Jump Lists, LNK
 
 ### Windows Timeline (`ActivitiesCache.db`)
 
@@ -324,9 +324,9 @@ Conclusion and confidence:
 
 ## Further Reading and Sources
 
-- TryHackMe — **Windows Forensics 1** (Registry Forensics) and **Windows Forensics 2** (File System / Activity Artifacts). These were the learning basis for this guide.
-- TryHackMe — *Windows Forensics Cheatsheet* (registry locations supplied in the room materials; verify hive layout against the target OS).
-- Eric Zimmerman — [EZ Tools](https://ericzimmerman.github.io/) for Registry Explorer, MFTECmd, PECmd, WxTCmd, JLECmd and LECmd. Run `<tool> --help` for installed-version flags.
-- Microsoft Learn — Windows registry, Event Logging, and NTFS documentation for OS-specific behavior.
+- TryHackMe - **Windows Forensics 1** (Registry Forensics) and **Windows Forensics 2** (File System / Activity Artifacts). These were the learning basis for this guide.
+- TryHackMe - *Windows Forensics Cheatsheet* (registry locations supplied in the room materials; verify hive layout against the target OS).
+- Eric Zimmerman - [EZ Tools](https://ericzimmerman.github.io/) for Registry Explorer, MFTECmd, PECmd, WxTCmd, JLECmd and LECmd. Run `<tool> --help` for installed-version flags.
+- Microsoft Learn - Windows registry, Event Logging, and NTFS documentation for OS-specific behavior.
 
 **Portfolio note:** This is an independently organized reference, not a reproduction of a room's solution or an assertion that every listed artifact was available in a particular challenge.
