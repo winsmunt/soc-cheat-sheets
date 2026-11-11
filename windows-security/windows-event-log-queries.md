@@ -1,4 +1,4 @@
-# Windows Event Log Queries — SOC Quick Reference
+# Windows Event Log Queries
 
 > Practical Windows Event Log investigation with PowerShell `Get-WinEvent` and `wevtutil`. Designed for SOC triage, threat hunting, and offline EVTX analysis.
 >
@@ -289,13 +289,13 @@ Get-WinEvent -FilterHashtable @{
 
 Within this repository:
 
-- [`windows-event-ids.md`](windows-event-ids.md) — Windows, Sysmon and PowerShell event ID descriptions.
-- [`windows-logon-types.md`](windows-logon-types.md) — interpreting Windows logon types.
-- [`active-directory-monitoring.md`](active-directory-monitoring.md) — AD-related monitoring concepts.
+- [`windows-event-ids.md`](windows-event-ids.md) - Windows, Sysmon and PowerShell event ID descriptions.
+- [`windows-logon-types.md`](windows-logon-types.md) - interpreting Windows logon types.
+- [`active-directory-monitoring.md`](active-directory-monitoring.md) - AD-related monitoring concepts.
 
 Source material used to develop this guide:
 
-- TryHackMe — *Windows Event Logs* (user's training notes, especially `Get-WinEvent`, `wevtutil`, `FilterHashtable` and XPath examples).
-- Malware Archaeology — *Windows Logging Cheat Sheet*, October 2016 (historical supplementary reference; **do not treat its Windows 7 / Server 2012 configuration recommendations as current baselines**).
+- TryHackMe - *Windows Event Logs* (user's training notes, especially `Get-WinEvent`, `wevtutil`, `FilterHashtable` and XPath examples).
+- Malware Archaeology - *Windows Logging Cheat Sheet*, October 2016 (historical supplementary reference; **do not treat its Windows 7 / Server 2012 configuration recommendations as current baselines**).
 
 This guide intentionally does **not** reproduce the third-party PDFs or images. Example paths are illustrative; replace them with your authorized evidence paths.
