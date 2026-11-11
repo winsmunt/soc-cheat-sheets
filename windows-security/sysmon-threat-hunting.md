@@ -1,4 +1,4 @@
-# Sysmon Threat Hunting — Practical SOC Field Guide
+# Sysmon Threat Hunting
 
 > **Purpose:** A hands-on reference for interpreting Sysmon telemetry, building hunting hypotheses, and validating suspicious behavior. Designed for SOC L1/L2 investigations and Windows DFIR labs.
 >
@@ -132,7 +132,7 @@ Ports are weak indicators by themselves: benign software may use them and attack
 
 ## 4. Hunting Scenarios
 
-### Hunt A — Suspicious Parent/Child Execution
+### Hunt A - Suspicious Parent/Child Execution
 
 **Hypothesis:** A document, browser, or user-facing application launches a script host or LOLBin unexpectedly.
 
@@ -152,7 +152,7 @@ This is a **quick text-based triage example**, not a reliable production correla
 
 **Validate:** Could it be a corporate macro, installer, help-desk script, or Office add-in? Check child command-line switches, path, signature, recent documents, and whether the activity repeats across endpoints.
 
-### Hunt B — Possible C2 Communication
+### Hunt B - Possible C2 Communication
 
 **Hypothesis:** A process resolves an unusual domain and communicates with an unexpected destination shortly afterward.
 
@@ -162,7 +162,7 @@ This is a **quick text-based triage example**, not a reliable production correla
 
 **Validate:** Corporate proxies and browser processes generate considerable noise. A DNS lookup does not guarantee a successful connection; a network event alone does not prove C2. Look for repeated periodic activity, suspicious process ancestry, and accompanying payload/file activity.
 
-### Hunt C — LSASS Access / Potential Credential Dumping
+### Hunt C - LSASS Access / Potential Credential Dumping
 
 **Hypothesis:** An unexpected process obtains access to `lsass.exe`.
 
@@ -182,7 +182,7 @@ This is a **quick text-based triage example**, not a reliable production correla
 
 **Validate carefully:** EDR sensors, antivirus, crash handling (`WerFault.exe`), privileged-access management, and diagnostic software can legitimately access LSASS. There is no universal malicious `GrantedAccess` value. Do **not** suppress all LSASS events from a product merely because it usually behaves benignly; verify path, signer, parent process, version, and operating context.
 
-### Hunt D — Registry Persistence
+### Hunt D - Registry Persistence
 
 **Hypothesis:** A process creates or changes a Run/RunOnce autorun entry.
 
@@ -203,7 +203,7 @@ This is a **quick text-based triage example**, not a reliable production correla
 
 **Validate:** Check the full value data/command, owning program, signed binaries, when it was written, and whether the path is user-writable. Legitimate installers often modify Run keys.
 
-### Hunt E — Suspicious File Creation and Alternate Data Streams
+### Hunt E - Suspicious File Creation and Alternate Data Streams
 
 **Hypothesis:** A process stages a payload in a user-writable directory or creates an unusual named stream.
 
@@ -222,7 +222,7 @@ This is a **quick text-based triage example**, not a reliable production correla
 
 **Validate:** Downloads and temporary paths contain legitimate installers and updates. Correlate created files with the creating process (Event ID 1) and any subsequent executions. `Zone.Identifier` is a common legitimate ADS and is not malware proof.
 
-### Hunt F — Remote Thread / Process Injection Indicators
+### Hunt F - Remote Thread / Process Injection Indicators
 
 **Hypothesis:** One process creates a thread inside a different process.
 
@@ -238,7 +238,7 @@ This is a **quick text-based triage example**, not a reliable production correla
 
 Field mapping differs across raw XML, Splunk, Elastic, and custom ingest pipelines. Confirm the data model before copying a query.
 
-### Splunk — raw Sysmon-style fields (example)
+### Splunk - raw Sysmon-style fields (example)
 
 ```spl
 index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventID=1
@@ -255,7 +255,7 @@ index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" E
 
 Your environment might use `EventCode` rather than `EventID`, different sourcetypes, or a normalized field set.
 
-### Elastic KQL — ECS-style field mapping (example)
+### Elastic KQL - ECS-style field mapping (example)
 
 ```kql
 process.parent.name: (WINWORD.EXE or EXCEL.EXE or OUTLOOK.EXE) and
@@ -329,11 +329,9 @@ Before elevating an event to an incident, ask:
 
 ## 9. Further Reading and Source Notes
 
-- [Microsoft Learn — Sysmon events](https://learn.microsoft.com/en-us/windows/security/operating-system-security/sysmon/sysmon-events)
-- [Microsoft Learn — Sysmon configuration files](https://learn.microsoft.com/en-us/windows/security/operating-system-security/sysmon/sysmon-configuration-files)
+- [Microsoft Learn - Sysmon events](https://learn.microsoft.com/en-us/windows/security/operating-system-security/sysmon/sysmon-events)
+- [Microsoft Learn - Sysmon configuration files](https://learn.microsoft.com/en-us/windows/security/operating-system-security/sysmon/sysmon-configuration-files)
 - [Microsoft Sysmon/SysmonCommon repository](https://github.com/microsoft/SysmonCommon)
 - [MITRE ATT&CK](https://attack.mitre.org/)
 
-**Learning basis:** The practical hunting themes in this guide were developed from personal TryHackMe notes covering Windows Event Logs, Sysmon, Windows Forensics, and Sysinternals. Examples were rewritten as reusable defensive workflows and cross-checked against Microsoft documentation. They are intentionally not presented as verified production detections or as a complete reproduction of the training rooms.
 
-**Reminder:** Keep lab datasets, credentials, personal information, and malware binaries out of public repositories. Publish sanitized findings and validated detection logic instead.
