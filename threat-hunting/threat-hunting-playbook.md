@@ -1,10 +1,10 @@
-# Threat Hunting Playbook — Elastic/Kibana (KQL)
+# Threat Hunting Playbook - Elastic/Kibana (KQL)
 
-> **Purpose:** A reusable, investigation-first field guide for SOC analysts working with Elastic Discover, Winlogbeat, Sysmon, Filebeat, and Packetbeat. Built from personal notes on TryHackMe's *Threat Hunting: Foothold, Pivoting, and Endgame* rooms. The goal is to solve **new** scenarios independently—not reproduce challenge answers.
+> **Purpose:** A reusable, investigation-first field guide for SOC analysts working with Elastic Discover, Winlogbeat, Sysmon, Filebeat, and Packetbeat. Built from personal notes on TryHackMe's *Threat Hunting: Foothold, Pivoting, and Endgame* rooms. The goal is to solve **new** scenarios independently-not reproduce challenge answers.
 >
 > **Scope:** KQL examples use field names observed in the provided lab notes. Field availability varies by index, agent version, and data source. Replace hostnames, IPs, users, timestamps, and index patterns with evidence from your own investigation. These are hunting leads, **not** high-confidence production detections.
 
-## 1. Quick Reference — Start Here
+## 1. Quick Reference - Start Here
 
 | Investigation goal | KQL starting point | Look at next |
 |---|---|---|
@@ -80,7 +80,7 @@ For network activity: `source.ip`, `source.port`, `destination.ip`, `destination
 
 If the source lacks normalized ECS fields, use the raw `winlog.event_data.*` fields visible in that event.
 
-## 4. Foothold — Find Initial Access and Execution
+## 4. Foothold - Find Initial Access and Execution
 
 ### 4.1 Phishing → application → command interpreter
 
@@ -156,7 +156,7 @@ winlog.event_id: (12 OR 13 OR 14)
 
 Investigate `Run`, `RunOnce`, service keys, and security-product configuration changes. Confirm the source provider is Sysmon and correlate with process creation. One registry modification is not enough to label an intrusion.
 
-## 5. Foothold / C2 — Network Hunting
+## 5. Foothold / C2 - Network Hunting
 
 ### 5.1 DNS and HTTP pivots
 
@@ -198,7 +198,7 @@ For domain activity, the supplied notes show a table workflow:
 
 **Counts represent matching records, not necessarily unique DNS queries or sessions.** Beware duplicates, retries, client behavior, and aggregation periods.
 
-## 6. Pivoting — From One Host to the Rest of the Network
+## 6. Pivoting - From One Host to the Rest of the Network
 
 ### 6.1 Reconnaissance burst
 
@@ -286,7 +286,7 @@ winlog.event_id: 1 AND process.parent.name: WmiPrvSE.exe
 
 If normalized parent fields are missing, search raw parent process fields. Investigate command-line arguments, target host, WMI provider activity, and authentication/service events. WMI is a common legitimate management mechanism too.
 
-## 7. Endgame — Collection, Exfiltration and Impact
+## 7. Endgame - Collection, Exfiltration and Impact
 
 ### 7.1 Collection: start with staged files and scripts
 
@@ -366,14 +366,14 @@ These are **hunting hypotheses**, not behaviors confirmed by the provided notes.
 
 ## 8. A Repeatable Hunt for an Unknown Challenge
 
-### Phase A — Discover the attack surface (10–15 min)
+### Phase A - Discover the attack surface (10–15 min)
 
 - Establish index coverage and incident time.
 - List affected hosts and users.
 - Inspect a few raw events from each data source to learn field names.
 - Look for first unusual process, URL, file, or login.
 
-### Phase B — Follow the chain
+### Phase B - Follow the chain
 
 | Suspected stage | First useful search | Pivot question |
 |---|---|---|
@@ -389,7 +389,7 @@ These are **hunting hypotheses**, not behaviors confirmed by the provided notes.
 | Exfiltration | Network transfer, ICMP/HTTP, destination and volume | What data likely left and how much? |
 | Impact | File churn, ransom notes, service changes | What damage actually occurred? |
 
-### Phase C — Report what you know, not what you guess
+### Phase C - Report what you know, not what you guess
 
 For each claimed attack step, document:
 
@@ -413,53 +413,3 @@ For each claimed attack step, document:
 | `admin$` or `127.0.0.1` is treated as proof | Local/admin activity may be legitimate | Inspect parent, host, account, remote destination and full context |
 | A command looks encoded | Encoding is not proof of malware | Decode safely and correlate behavior |
 | Process match is too narrow | Malware renamed or used alternate binaries | Hunt behaviors and relationships rather than one filename |
-
-## 10. Evidence Capture for GitHub or an Incident Report
-
-Save only the strongest evidence; a good hunt usually needs **fewer, better screenshots**:
-
-1. Initial hypothesis and first anomalous event in Discover.
-2. Process execution with parent/child and command line.
-3. Corroborating file/registry/authentication evidence.
-4. Network or exfiltration artifact with relevant fields.
-5. A clean timeline or Lens summary.
-6. The final conclusion, including uncertainty and benign alternatives.
-
-Suggested investigation write-up structure:
-
-```text
-Overview / Scope
-Hypothesis
-Data Sources & Time Window
-Key Findings
-Investigation Timeline
-Evidence and Queries
-Attack Chain / MITRE ATT&CK Mapping
-False Positives and Limitations
-IOCs (with context)
-Conclusion and Lessons Learned
-```
-
-**Avoid:** submitting question-answer dumps, claiming detections are production-ready without validation, exposing real secrets, or uploading malware. Mask challenge flags in screenshots.
-
-## 11. Practical Mini-Exercises (No Spoilers)
-
-1. Pick one host and identify the earliest suspicious parent-child process chain. Explain why it is anomalous.
-2. Find at least three distinct reconnaissance utilities launched by the same user in a short window. Were they interactive or automated?
-3. Identify an unusual domain, then correlate its network connections to the responsible process.
-4. Find a registry modification and a subsequent process/service event that could confirm persistence.
-5. Reconstruct failed logons → successful logon → remote process creation, including the possibility of legitimate administration.
-6. Given a PowerShell script that reads a file in chunks and transmits each chunk, derive an expected call count and describe what additional evidence would prove actual network packet count.
-7. Write a 5-line conclusion that separates **observed facts**, **hypotheses**, and **unknowns**.
-
-## 12. Source Notes and Verification
-
-**Primary source:** personal screenshot notes from TryHackMe *Threat Hunting: Foothold, Pivoting, Endgame* (23-page PDF provided with this document). Topics from those screenshots include:
-
-- **Foothold, pp. 1–11:** network triage, browsers and Outlook downloads, Sysmon process creation, PowerShell logging, Defender-related hunting, registry changes, DNS/HTTP and Lens.
-- **Pivoting, pp. 11–19:** reconnaissance, port scans, LDAP, privilege escalation, service changes, LSASS, DCSync, authentication and WMI lateral movement.
-- **Endgame, pp. 19–23:** collection, data exfiltration with PowerShell/ICMP, process pivots, and impact.
-
-**Additional explanations in this guide** (workflow, generalization, error handling, investigative caveats, and optional example searches) are written to make the source notes reusable. They are not claimed as direct quotations from the rooms. Where the lab screenshots are hard to read or a complete query is not preserved, this guide provides a clearly labeled starting-point query rather than inventing an exact original.
-
-**Companion guides already in `soc-cheat-sheets/windows-security/`:** `windows-event-ids.md`, `windows-logon-types.md`, `windows-event-log-queries.md`, `windows-forensics-artifacts.md`, and `sysmon-threat-hunting.md`. This document intentionally emphasizes the **end-to-end hunting process**, not another full event-ID glossary.
